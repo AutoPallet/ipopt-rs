@@ -251,6 +251,7 @@ fn major_versioned_library_name() -> String {
 fn try_pkg_config() -> Result<LinkInfo, Error> {
     match pkg_config::Config::new()
         .atleast_version(MIN_VERSION)
+        .statik(false)
         .cargo_metadata(false) // We are linking to cnlp, not to the rust lib
         .probe(LIBRARY)
     {
@@ -261,7 +262,7 @@ fn try_pkg_config() -> Result<LinkInfo, Error> {
                     .libs
                     .iter()
                     .cloned()
-                    .map(|lib| (lib_type, lib))
+                    .map(|lib| (LibKind::Dynamic, lib))
                     .collect(),
                 search_paths: lib.link_paths.clone(),
                 include_paths: lib.include_paths.clone(),
@@ -840,16 +841,16 @@ fn build_with_mkl(install_dir: &Path, debug: bool) -> Result<LinkInfo, Error> {
 fn check_pkg_config_lib_type(lib_name: &str, lib: &pkg_config::Library) -> LibKind {
     let mut lib_type = LibKind::Dynamic;
 
-    if cfg!(target_os = "linux") {
-        // Check if there is a static library, in which case link to that. Otherwise fallback
-        // to dynamic linking.
-        let static_lib = format!("lib{}.a", lib_name);
-        for path in lib.link_paths.iter() {
-            if path.join(&static_lib).exists() {
-                lib_type = LibKind::Static;
-            }
-        }
-    }
+    // if cfg!(target_os = "linux") {
+    //     // Check if there is a static library, in which case link to that. Otherwise fallback
+    //     // to dynamic linking.
+    //     let static_lib = format!("lib{}.a", lib_name);
+    //     for path in lib.link_paths.iter() {
+    //         if path.join(&static_lib).exists() {
+    //             lib_type = LibKind::Static;
+    //         }
+    //     }
+    // }
     lib_type
 }
 

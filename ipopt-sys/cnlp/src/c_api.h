@@ -256,6 +256,12 @@ extern "C"
     CNLP_API(void) cnlp_set_intermediate_callback(CNLP_ProblemPtr problem,
                                                   CNLP_Intermediate_CB intermediate_cb);
 
+    /** Copy the current unscaled primal variables, including fixed variables.
+     * Only valid from an intermediate callback; returns false if unavailable.
+     */
+    CNLP_API(CNLP_Bool) cnlp_get_current_iterate(CNLP_ProblemPtr problem,
+                                               CNLP_Index n, CNLP_Number* x);
+
     /** Solution data for one solve. */
     struct CNLP_SolverData {
         CNLP_Number* x;         // Optimal solution

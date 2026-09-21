@@ -55,6 +55,8 @@ public:
     // Set the intermediate callback.
     void set_intermediate_cb(CNLP_Intermediate_CB intermediate_cb);
 
+    bool get_current_iterate(CNLP_Index n, CNLP_Number* x);
+
     bool init_solution();
 
     void preallocate_solution_data(CNLP_Index n, CNLP_Index m);
@@ -157,6 +159,9 @@ private:
     CNLP_Eval_H_CB m_eval_h; // Callback function evaluating Hessian of Lagrangian
     CNLP_ScalingParams_CB m_scaling; // Callback function for setting scaling parameters
 
+    const Ipopt::IpoptData* m_callback_data = nullptr;
+    Ipopt::IpoptCalculatedQuantities* m_callback_cq = nullptr;
+    Ipopt::AlgorithmMode m_callback_mode = Ipopt::RegularMode;
     CNLP_Intermediate_CB m_intermediate_cb; // Intermediate callback function gives control to user
     CNLP_UserDataPtr m_user_data;
 

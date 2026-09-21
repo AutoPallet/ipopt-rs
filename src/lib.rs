@@ -522,6 +522,12 @@ pub struct SolveResult<'a, P: 'a> {
 /// prematurely. If this method returns false, Ipopt will terminate the optimization.
 pub type IntermediateCallback<P> = fn(&mut P, IntermediateCallbackData) -> bool;
 
+/// Callback with the current unscaled primal iterate in original variable order.
+/// `None` means IPOPT could not expose the iterate. The slice is valid only for
+/// the callback and includes fixed variables, including during restoration.
+pub type IntermediatePrimalCallback<P> =
+    fn(&mut P, IntermediateCallbackData, Option<&[Number]>) -> bool;
+
 /// Ipopt non-linear optimization problem solver.
 ///
 /// This structure is used to store data needed to solve these problems using first and second
@@ -533,6 +539,8 @@ pub struct Ipopt<P: BasicProblem> {
     nlp_interface: P,
     /// Intermediate callback.
     intermediate_callback: Option<IntermediateCallback<P>>,
+    intermediate_primal_callback: Option<IntermediatePrimalCallback<P>>,
+    intermediate_primal: Vec<Number>,
     /// Number of primal variables.
     num_primal_variables: usize,
     /// Number of dual variables.
@@ -572,6 +580,8 @@ impl<P: BasicProblem> Ipopt<P> {
             nlp_internal,
             nlp_interface: nlp,
             intermediate_callback: None,
+            intermediate_primal_callback: None,
+            intermediate_primal: Vec::new(),
             // These two will be updated every time sizes callback is called.
             num_primal_variables: num_vars,
             num_dual_variables: num_constraints,
@@ -675,6 +685,7 @@ impl<P: BasicProblem> Ipopt<P> {
         P: BasicProblem,
     {
         self.intermediate_callback = mb_cb;
+        self.intermediate_primal_callback = None;
 
         unsafe {
             if mb_cb.is_some() {
@@ -682,6 +693,22 @@ impl<P: BasicProblem> Ipopt<P> {
             } else {
                 ffi::cnlp_set_intermediate_callback(self.nlp_internal, None);
             }
+        }
+    }
+
+    /// Set an intermediate callback that also reads the current primal iterate.
+    /// Replaces the scalar-only callback. Copies no iterates when disabled.
+    pub fn set_intermediate_callback_with_primal(
+        &mut self,
+        callback: Option<IntermediatePrimalCallback<P>>,
+    ) {
+        self.intermediate_callback = None;
+        self.intermediate_primal_callback = callback;
+        unsafe {
+            ffi::cnlp_set_intermediate_callback(
+                self.nlp_internal,
+                if callback.is_some() { Some(Self::intermediate_cb) } else { None },
+            );
         }
     }
 
@@ -954,26 +981,25 @@ impl<P: BasicProblem> Ipopt<P> {
         user_data: ffi::CNLP_UserDataPtr,
     ) -> Bool {
         let ip = &mut (*(user_data as *mut Ipopt<P>));
-        if let Some(callback) = ip.intermediate_callback {
-            (callback)(
-                &mut ip.nlp_interface,
-                IntermediateCallbackData {
-                    alg_mod: match alg_mod {
-                        0 => AlgorithmMode::Regular,
-                        _ => AlgorithmMode::RestorationPhase,
-                    },
-                    iter_count,
-                    obj_value,
-                    inf_pr,
-                    inf_du,
-                    mu,
-                    d_norm,
-                    regularization_size,
-                    alpha_du,
-                    alpha_pr,
-                    ls_trials,
-                },
-            ) as Bool
+        let data = IntermediateCallbackData {
+            alg_mod: match alg_mod {
+                0 => AlgorithmMode::Regular,
+                _ => AlgorithmMode::RestorationPhase,
+            },
+            iter_count, obj_value, inf_pr, inf_du, mu, d_norm,
+            regularization_size, alpha_du, alpha_pr, ls_trials,
+        };
+        if let Some(callback) = ip.intermediate_primal_callback {
+            ip.intermediate_primal.resize(ip.num_primal_variables, 0.0);
+            let available = ffi::cnlp_get_current_iterate(
+                ip.nlp_internal,
+                ip.num_primal_variables as Index,
+                ip.intermediate_primal.as_mut_ptr(),
+            ) != 0;
+            callback(&mut ip.nlp_interface, data,
+                     if available { Some(&ip.intermediate_primal) } else { None }) as Bool
+        } else if let Some(callback) = ip.intermediate_callback {
+            callback(&mut ip.nlp_interface, data) as Bool
         } else {
             true as Bool
         }

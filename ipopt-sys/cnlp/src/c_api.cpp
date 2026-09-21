@@ -110,6 +110,16 @@ void cnlp_set_intermediate_callback(CNLP_ProblemPtr problem,
     problem->set_intermediate_cb(intermediate_cb);
 }
 
+CNLP_Bool cnlp_get_current_iterate(CNLP_ProblemPtr problem, CNLP_Index n, CNLP_Number* x)
+{
+    try {
+        return problem->get_current_iterate(n, x);
+    } catch (...) {
+        // No C++ exception may cross the C ABI.
+        return 0;
+    }
+}
+
 CNLP_SolveResult cnlp_solve(CNLP_ProblemPtr problem, CNLP_UserDataPtr user_data)
 {
     return problem->solve(user_data);

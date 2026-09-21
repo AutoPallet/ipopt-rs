@@ -1,6 +1,11 @@
 #include "nlp.hpp"
 #include <coin/IpIpoptApplication.hpp>
 #include <coin/IpBlas.hpp>
+#include <coin/IpIpoptData.hpp>
+#include <coin/IpIpoptCalculatedQuantities.hpp>
+#include <coin/IpOrigIpoptNLP.hpp>
+#include <coin/IpTNLPAdapter.hpp>
+#include <coin/IpCompoundVector.hpp>
 
 #include <algorithm>
 
@@ -328,11 +333,47 @@ bool CNLP_Problem::intermediate_callback(
 {
     CNLP_Bool retval = 1;
     if (m_intermediate_cb && *m_intermediate_cb) {
+        m_callback_data = ip_data;
+        m_callback_cq = ip_cq;
+        m_callback_mode = mode;
         retval = (**m_intermediate_cb)(convert_algorithm_mode(mode), iter, obj_value, inf_pr, inf_du,
                 mu, d_norm, regularization_size, alpha_du,
                 alpha_pr, ls_trials, m_user_data);
+        m_callback_data = nullptr;
+        m_callback_cq = nullptr;
     }
     return (retval!=0);
+}
+
+bool CNLP_Problem::get_current_iterate(CNLP_Index n, CNLP_Number* x)
+{
+    using namespace Ipopt;
+    if (!m_callback_data || !m_callback_cq || !x || n != static_cast<CNLP_Index>(m_x_sol.size())
+            || !IsValid(m_callback_data->curr())) {
+        return false;
+    }
+#if IPOPT_VERSION_MAJOR > 3 || (IPOPT_VERSION_MAJOR == 3 && IPOPT_VERSION_MINOR >= 14)
+    return get_curr_iterate(m_callback_data, m_callback_cq, false,
+                            n, x, nullptr, nullptr, 0, nullptr, nullptr);
+#else
+    // IPOPT < 3.14 has no TNLP::get_curr_iterate. The application's NLP
+    // remains the original NLP even during restoration. ResortX reinserts
+    // variables eliminated by fixed_variable_treatment=make_parameter.
+    OrigIpoptNLP* original = dynamic_cast<OrigIpoptNLP*>(GetRawPtr(m_app->IpoptNLPObject()));
+    if (!original) return false;
+    TNLPAdapter* adapter = dynamic_cast<TNLPAdapter*>(GetRawPtr(original->nlp()));
+    if (!adapter) return false;
+    SmartPtr<const Vector> current = m_callback_data->curr()->x();
+    if (m_callback_mode == RestorationPhaseMode) {
+        // Restoration adds slack variables; component zero is original x.
+        const CompoundVector* compound = dynamic_cast<const CompoundVector*>(GetRawPtr(current));
+        if (!compound || compound->NComps() == 0) return false;
+        current = compound->GetComp(0);
+    }
+    current = original->NLP_scaling()->unapply_vector_scaling_x(current);
+    adapter->ResortX(*current, x);
+    return true;
+#endif
 }
 
 void CNLP_Problem::finalize_solution(
